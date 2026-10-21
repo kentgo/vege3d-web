@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+
+  <title>蔬果篮子</title>
+
+  <!--http://www.html5rocks.com/en/mobile/mobifying/-->
+  <meta name="viewport"
+        content="width=device-width,user-scalable=no,initial-scale=1,minimum-scale=1,maximum-scale=1,minimal-ui=true"/>
+
+  <!--https://developer.apple.com/library/safari/documentation/AppleApplications/Reference/SafariHTMLRef/Articles/MetaTags.html-->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="format-detection" content="telephone=no">
+
+  <!-- force webkit on 360 -->
+  <meta name="renderer" content="webkit"/>
+  <meta name="force-rendering" content="webkit"/>
+  <!-- force edge on IE -->
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"/>
+  <meta name="msapplication-tap-highlight" content="no">
+
+  <!-- force full screen on some browser -->
+  <meta name="full-screen" content="yes"/>
+  <meta name="x5-fullscreen" content="true"/>
+  <meta name="360-fullscreen" content="true"/>
+
+  <!--fix fireball/issues/3568 -->
+  <!--<meta name="browsermode" content="application">-->
+  <meta name="x5-page-mode" content="app">
+
+  <!--<link rel="apple-touch-icon" href=".png" />-->
+  <!--<link rel="apple-touch-icon-precomposed" href=".png" />-->
+
+  <link rel="stylesheet" type="text/css" href="style.f76d1.css"/>
+
+  <!--
+    ==========================================================================
+    加载画面（2026-10-19 用户要求）
+      "改成一个大概是手机屏幕 1/10 大小的动图：很多蔬菜水果从上往下掉，
+       好像下雨一样，在整个加载过程中一直播放。"
+
+    ★ 为什么不用 Cocos 自带的启动画面：
+      引擎的启动画面只能画**一张静态图**（settings.json → splashScreen），
+      做不了动画。而这一层是纯 HTML/CSS，动画随便做，而且加载期间就能显示。
+
+    ★ 蔬果图片来自游戏真正在用的同一批 GLB：
+      Blender\48_splash_sprites.py 渲成 128x128 透明底 PNG，
+      由 tools\patch_splash.cjs 复制成 splash/s01.png … s25.png。
+      图片加载失败会自动隐藏自己，不会留下破图。
+
+    ★ 什么时候收起来：
+      游戏场景 start() 跑完会调 window.__vegeSplashDone()（见 PhysStage.start），
+      淡出 0.35 秒后从 DOM 里删掉。另有 60 秒兜底，避免极端情况下卡住白屏。
+    ==========================================================================
+  -->
+  <style>
+    #vegeSplash {
+      position: fixed;
+      left: 0; top: 0; right: 0; bottom: 0;
+      z-index: 99999;
+      background: #10261b;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.35s ease;
+      -webkit-user-select: none; user-select: none;
+    }
+    #vegeSplash.vege-hide { opacity: 0; pointer-events: none; }
+
+    /* 动画区：约等于手机屏幕 1/10 的面积（46vmin 的方框 ≈ 9~10% 面积） */
+    #vegeRain {
+      position: relative;
+      width: 46vmin;
+      height: 46vmin;
+      max-width: 260px;
+      max-height: 260px;
+      overflow: hidden;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.05);
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08) inset;
+    }
+    #vegeRain img {
+      position: absolute;
+      top: 0;
+      width: 18%;
+      height: auto;
+      will-change: transform;
+      animation-name: vegeFall;
+      animation-timing-function: linear;
+      animation-iteration-count: infinite;
+    }
+    @keyframes vegeFall {
+      0%   { transform: translate3d(0, -130%, 0) rotate(-25deg); }
+      100% { transform: translate3d(0, 620%, 0) rotate(300deg); }
+    }
+
+    #vegeSplashText {
+      margin-top: 3.2vmin;
+      font: 600 3.4vmin/1.4 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: rgba(236, 245, 236, 0.9);
+      letter-spacing: 0.08em;
+    }
+    #vegeSplashDots::after {
+      content: '';
+      animation: vegeDots 1.2s steps(4, end) infinite;
+    }
+    @keyframes vegeDots {
+      0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; }
+    }
+  </style>
+</head>
+<body>
+  <div id="GameDiv" cc_exact_fit_screen="true">
+      <div id="Cocos3dGameContainer">
+        <canvas id="GameCanvas" oncontextmenu="event.preventDefault()" tabindex="99"></canvas>
+      </div>
+    </div>
+
+  <div id="vegeSplash">
+    <div id="vegeRain"></div>
+    <div id="vegeSplashText">正在准备一篮蔬果<span id="vegeSplashDots"></span></div>
+  </div>
+
+  <script>
+    (function () {
+      var SPRITES = 25;               // 和 Blender\48_splash_sprites.py 的 NAMES 数量一致
+      var COUNT = 64;                 // ★ 实际铺多少颗（同一张图可以重复用 —— 密度高一点更好看）
+      var rain = document.getElementById('vegeRain');
+      var splash = document.getElementById('vegeSplash');
+      var i, img, size, dur, delay, left, idx;
+
+      for (i = 1; i <= COUNT; i++) {
+        img = document.createElement('img');
+        idx = ((i - 1) % SPRITES) + 1;                    // 循环取图
+        img.src = 'splash/s' + (idx < 10 ? '0' + idx : idx) + '.png';
+        img.alt = '';
+        img.onerror = function () { this.style.display = 'none'; };
+
+        // 每颗水果：随机大小、随机速度、随机起始位置
+        size = 12 + Math.random() * 14;             // 占动画区宽度的百分比
+        dur = 1.6 + Math.random() * 2.0;            // 每秒掉完一趟的时间
+        delay = -Math.random() * 4.0;               // 负延迟 → 一开始就铺满，不用等
+        left = Math.random() * (100 - size);
+
+        img.style.left = left.toFixed(1) + '%';
+        img.style.width = size.toFixed(1) + '%';
+        img.style.animationDuration = dur.toFixed(2) + 's';
+        img.style.animationDelay = delay.toFixed(2) + 's';
+        rain.appendChild(img);
+      }
+
+      var hidden = false;
+      window.__vegeSplashDone = function () {
+        if (hidden) return;
+        hidden = true;
+        try {
+          splash.className = 'vege-hide';
+          setTimeout(function () {
+            if (splash && splash.parentNode) splash.parentNode.removeChild(splash);
+          }, 400);
+        } catch (e) { /* ignore */ }
+      };
+
+      /**
+       * 进度回报：PhysStage._loadAll() 每加载完一个模型就调一次，比如 "7/16"。
+       * 为什么要做：模型还要从网络上下五 MB 多，没有进度的话玩家会以为卡死了。
+       * 顺带把"这个阶段在干什么"写清楚 —— 从"正在准备"变成"正在搬蔬果"。
+       */
+      var textNode = document.getElementById('vegeSplashText');
+      window.__vegeSplashStatus = function (tag) {
+        if (hidden || !textNode) return;
+        textNode.textContent = '正在搬蔬果 ' + tag;
+      };
+
+      // 兜底：万一游戏根本没启动起来，90 秒后也别永远挡着（正常情况早就被 __vegeSplashDone 收掉了）
+      setTimeout(window.__vegeSplashDone, 90000);
+    })();
+  </script>
+
+  
+
+<!-- Polyfills bundle. -->
+
+<script src="src/polyfills.bundle.5adbf.js" charset="utf-8"> </script>
+
+
+<!-- SystemJS support. -->
+<script src="src/system.bundle.543e6.js" charset="utf-8"> </script>
+
+<!-- Import map -->
+<script src="src/import-map.c0707.json" type="systemjs-importmap" charset="utf-8"> </script>
+
+<script>
+    System.import('./index.1947a.js').catch(function(err) { console.error(err); })
+</script>
+
+</body>
+</html>
