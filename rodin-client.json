@@ -1,0 +1,22 @@
+{
+  "client_id": "https://kentgo.github.io/vege3d-web/rodin-client.json",
+  "client_name": "DSH Rodin Batch",
+  "client_uri": "https://kentgo.github.io/vege3d-web/",
+  "logo_uri": "https://kentgo.github.io/vege3d-web/logo.png",
+  "redirect_uris": [
+    "http://127.0.0.1:51337/callback"
+  ],
+  "grant_types": [
+    "authorization_code",
+    "refresh_token"
+  ],
+  "response_types": [
+    "code"
+  ],
+  "token_endpoint_auth_method": "none",
+  "application_type": "native",
+  "scope": "openid offline_access rodin:generate rodin:read account:read",
+  "contacts": [
+    "kentgo@users.noreply.github.com"
+  ]
+}
